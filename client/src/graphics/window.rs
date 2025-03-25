@@ -7,12 +7,15 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
+// source : https://sotrh.github.io/learn-wgpu/beginner/tutorial3-pipeline/#how-do-we-use-the-shaders
+
 pub struct State<'a> {
     surface: wgpu::Surface<'a>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
+    render_pipeline: wgpu::RenderPipeline,
     window: &'a Window,
 }
 
@@ -81,12 +84,71 @@ impl<'a> State<'a> {
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/shader.wgsl").into()),
+        });
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent::REPLACE,
+                        alpha: wgpu::BlendComponent::REPLACE,
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                // Setting this to anything other than Fill requires Features::POLYGON_MODE_LINE
+                // or Features::POLYGON_MODE_POINT
+                polygon_mode: wgpu::PolygonMode::Fill,
+                // Requires Features::DEPTH_CLIP_CONTROL
+                unclipped_depth: false,
+                // Requires Features::CONSERVATIVE_RASTERIZATION
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            // If the pipeline will be used with a multiview render pass, this
+            // indicates how many array layers the attachments will have.
+            multiview: None,
+            // Useful for optimizing shader compilation on Android
+            cache: None,
+        });
+
         Self {
             surface,
             device,
             queue,
             config,
             size,
+            render_pipeline,
             window,
         }
     }
@@ -123,7 +185,7 @@ impl<'a> State<'a> {
             });
 
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -142,6 +204,8 @@ impl<'a> State<'a> {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+            render_pass.set_pipeline(&self.render_pipeline); // 2.
+            render_pass.draw(0..3, 0..1); // 3.
         }
 
         self.queue.submit(iter::once(encoder.finish()));
