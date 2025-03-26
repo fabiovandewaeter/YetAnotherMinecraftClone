@@ -1,4 +1,4 @@
-use client::graphics::window::run;
+use client::graphics::renderer::run;
 
 fn main() {
     pollster::block_on(run());
